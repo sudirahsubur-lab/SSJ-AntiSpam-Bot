@@ -5,13 +5,15 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 
 import P from "pino";
+import qrcode from "qrcode-terminal";
 import { config } from "./config.js";
 import { evaluateMessage } from "./moderation.js";
 
 const logger = P({ level: "silent" });
 const handled = new Set();
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 function getText(msg) {
   const m = msg?.message;
@@ -29,19 +31,9 @@ function getText(msg) {
   );
 }
 
-function normalizePhoneNumber(value = "") {
-  let phone = String(value).replace(/\D/g, "");
-
-  if (phone.startsWith("0")) {
-    phone = "62" + phone.slice(1);
-  }
-
-  return phone;
-}
-
 async function startBot() {
   console.log("==================================");
-  console.log("      SSJ ANTI-SPAM BOT");
+  console.log("       SSJ ANTI-SPAM BOT");
   console.log("==================================");
 
   const { state, saveCreds } =
@@ -50,13 +42,20 @@ async function startBot() {
   const { version } =
     await fetchLatestBaileysVersion();
 
-  console.log("Baileys version:", version.join("."));
+  console.log(
+    "Baileys version:",
+    version.join(".")
+  );
 
   const sock = makeWASocket({
     version,
     logger,
     auth: state,
 
+    /*
+     * QR akan kita tampilkan sendiri
+     * melalui connection.update
+     */
     printQRInTerminal: false,
 
     browser: [
@@ -66,139 +65,69 @@ async function startBot() {
     ],
 
     markOnlineOnConnect: false,
-
     syncFullHistory: false,
-
     generateHighQualityLinkPreview: false
   });
 
   /*
-   * ==========================================
-   * PAIRING CODE
-   * ==========================================
-   *
-   * Railway Variables:
-   *
-   * PHONE_NUMBER=628xxxxxxxxxx
-   *
-   * Contoh:
-   * 081234567890
-   * menjadi:
-   * 6281234567890
-   *
-   */
-
-  if (!state.creds.registered) {
-    const phoneNumber =
-      normalizePhoneNumber(process.env.PHONE_NUMBER);
-
-    if (!phoneNumber) {
-      console.log("");
-      console.log("❌ PHONE_NUMBER belum diisi.");
-      console.log("");
-      console.log(
-        "Buka Railway > Variables lalu tambahkan:"
-      );
-      console.log("");
-      console.log("PHONE_NUMBER=628xxxxxxxxxx");
-      console.log("");
-
-      return;
-    }
-
-    console.log("");
-    console.log(
-      "📱 Nomor WhatsApp:",
-      phoneNumber
-    );
-
-    console.log(
-      "⏳ Meminta pairing code..."
-    );
-
-    /*
-     * Tunggu socket siap sebelum
-     * meminta pairing code.
-     */
-    await sleep(3000);
-
-    try {
-      const code =
-        await sock.requestPairingCode(
-          phoneNumber
-        );
-
-      const formattedCode =
-        code?.match(/.{1,4}/g)?.join("-") ||
-        code;
-
-      console.log("");
-      console.log(
-        "=================================="
-      );
-
-      console.log(
-        "🔐 PAIRING CODE:"
-      );
-
-      console.log("");
-      console.log(formattedCode);
-      console.log("");
-
-      console.log(
-        "=================================="
-      );
-
-      console.log(
-        "Buka WhatsApp > Perangkat tertaut"
-      );
-
-      console.log(
-        "> Tautkan perangkat"
-      );
-
-      console.log(
-        "> Tautkan dengan nomor telepon"
-      );
-
-      console.log(
-        "> Masukkan kode di atas."
-      );
-
-      console.log(
-        "=================================="
-      );
-      console.log("");
-
-    } catch (error) {
-      console.error(
-        "❌ Gagal membuat pairing code:",
-        error
-      );
-    }
-  }
-
-  /*
    * SIMPAN SESSION
    */
-
   sock.ev.on(
     "creds.update",
     saveCreds
   );
 
   /*
-   * STATUS KONEKSI
+   * STATUS KONEKSI + QR
    */
-
   sock.ev.on(
     "connection.update",
     async (update) => {
 
       const {
         connection,
-        lastDisconnect
+        lastDisconnect,
+        qr
       } = update;
+
+      /*
+       * QR BARU DARI WHATSAPP
+       */
+      if (qr) {
+        console.log("");
+        console.log(
+          "=================================="
+        );
+        console.log(
+          "📱 SCAN QR WHATSAPP DI BAWAH INI"
+        );
+        console.log(
+          "=================================="
+        );
+        console.log("");
+
+        qrcode.generate(
+          qr,
+          {
+            small: true
+          }
+        );
+
+        console.log("");
+        console.log(
+          "Buka WhatsApp:"
+        );
+        console.log(
+          "Perangkat tertaut"
+        );
+        console.log(
+          "> Tautkan perangkat"
+        );
+        console.log(
+          "> Scan QR di atas"
+        );
+        console.log("");
+      }
 
       if (connection === "connecting") {
         console.log(
@@ -209,10 +138,16 @@ async function startBot() {
       if (connection === "open") {
         console.log("");
         console.log(
+          "=================================="
+        );
+        console.log(
           "✅ WHATSAPP TERHUBUNG"
         );
         console.log(
-          "✅ SSJ Anti-Spam Bot aktif"
+          "✅ SSJ Anti-Spam Bot AKTIF"
+        );
+        console.log(
+          "=================================="
         );
         console.log("");
       }
@@ -224,29 +159,33 @@ async function startBot() {
             ?.output
             ?.statusCode;
 
+        console.log(
+          "⚠️ Koneksi WhatsApp terputus."
+        );
+
+        console.log(
+          "Status:",
+          statusCode || "unknown"
+        );
+
         const loggedOut =
           statusCode ===
           DisconnectReason.loggedOut;
 
         if (loggedOut) {
-
+          console.log("");
           console.log(
-            "❌ WhatsApp logout."
+            "❌ SESSION WHATSAPP LOGOUT"
           );
-
           console.log(
-            "Hapus session auth_info lalu pairing ulang."
+            "Bot harus ditautkan ulang."
           );
-
+          console.log("");
           return;
         }
 
         console.log(
-          "⚠️ Koneksi terputus."
-        );
-
-        console.log(
-          "🔄 Menghubungkan ulang..."
+          "🔄 Mencoba menghubungkan kembali..."
         );
 
         await sleep(3000);
@@ -263,7 +202,6 @@ async function startBot() {
    * PESAN MASUK
    * ==========================================
    */
-
   sock.ev.on(
     "messages.upsert",
     async ({ messages, type }) => {
@@ -280,10 +218,16 @@ async function startBot() {
             continue;
           }
 
+          /*
+           * Abaikan pesan dari bot sendiri
+           */
           if (msg.key.fromMe) {
             continue;
           }
 
+          /*
+           * Cegah pesan diproses dua kali
+           */
           const messageId =
             msg.key.id;
 
@@ -308,9 +252,8 @@ async function startBot() {
             msg.key.remoteJid;
 
           /*
-           * Hanya proses grup WhatsApp
+           * Hanya moderasi grup
            */
-
           if (
             !jid ||
             !jid.endsWith("@g.us")
@@ -322,9 +265,8 @@ async function startBot() {
             getText(msg);
 
           /*
-           * Jalankan sistem moderasi
+           * CEK MODERASI
            */
-
           const result =
             await evaluateMessage({
               sock,
@@ -341,10 +283,10 @@ async function startBot() {
           /*
            * HAPUS PESAN
            */
-
           if (result.delete) {
 
             try {
+
               await sock.sendMessage(
                 jid,
                 {
@@ -353,13 +295,13 @@ async function startBot() {
               );
 
               console.log(
-                "🗑️ Pesan spam dihapus"
+                "🗑️ Pesan pelanggaran dihapus"
               );
 
             } catch (error) {
 
               console.error(
-                "Gagal menghapus pesan:",
+                "❌ Gagal menghapus pesan:",
                 error
               );
             }
@@ -368,7 +310,6 @@ async function startBot() {
           /*
            * KIRIM PERINGATAN
            */
-
           if (result.reply) {
 
             try {
@@ -386,16 +327,15 @@ async function startBot() {
             } catch (error) {
 
               console.error(
-                "Gagal mengirim peringatan:",
+                "❌ Gagal mengirim peringatan:",
                 error
               );
             }
           }
 
           /*
-           * KICK MEMBER
+           * KELUARKAN MEMBER
            */
-
           if (
             result.kick &&
             msg.key.participant
@@ -412,13 +352,13 @@ async function startBot() {
               );
 
               console.log(
-                "🚫 Member spam dikeluarkan"
+                "🚫 Member pelanggar dikeluarkan"
               );
 
             } catch (error) {
 
               console.error(
-                "Gagal mengeluarkan member:",
+                "❌ Gagal mengeluarkan member:",
                 error
               );
             }
@@ -439,9 +379,8 @@ async function startBot() {
 }
 
 /*
- * Mencegah Railway langsung mati
+ * JAGA PROSES BOT
  */
-
 process.on(
   "uncaughtException",
   (error) => {
