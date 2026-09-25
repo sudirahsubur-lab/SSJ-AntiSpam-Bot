@@ -12,6 +12,7 @@ import { config } from "./config.js";
 import { evaluateMessage } from "./moderation.js";
 
 const logger = P({ level: "silent" });
+
 const handled = new Set();
 
 const PORT = process.env.PORT || 3000;
@@ -20,13 +21,14 @@ let currentQR = null;
 let qrImage = null;
 let whatsappConnected = false;
 let connectionStatus = "Memulai bot...";
+let reconnecting = false;
 
 const sleep = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/* =========================================
+/* ==================================================
    WEB SERVER QR
-========================================= */
+================================================== */
 
 const app = express();
 
@@ -49,12 +51,11 @@ app.get("/", async (req, res) => {
       </div>
 
       <p>
-        Bot sudah berhasil terhubung ke WhatsApp.
+        Bot berhasil terhubung ke WhatsApp.
       </p>
 
       <p>
-        Sekarang masukkan nomor bot ke grup WhatsApp
-        dan jadikan sebagai admin.
+        Pastikan nomor bot sudah menjadi admin grup.
       </p>
     `;
   } else if (qrImage) {
@@ -62,7 +63,7 @@ app.get("/", async (req, res) => {
       <h1>SSJ Anti-Spam Bot</h1>
 
       <p class="subtitle">
-        Scan QR berikut menggunakan WhatsApp bot
+        Scan QR berikut menggunakan WhatsApp bot.
       </p>
 
       <div class="qr-box">
@@ -76,20 +77,15 @@ app.get("/", async (req, res) => {
         <b>Cara menghubungkan:</b><br><br>
 
         1. Buka WhatsApp<br>
-        2. Tekan menu ⋮<br>
-        3. Pilih <b>Perangkat tertaut</b><br>
-        4. Tekan <b>Tautkan perangkat</b><br>
-        5. Scan QR di atas
+        2. Buka <b>Perangkat tertaut</b><br>
+        3. Tekan <b>Tautkan perangkat</b><br>
+        4. Scan QR di atas
       </div>
 
       <div class="warning">
-        QR WhatsApp akan berubah secara otomatis.
-        Jika gagal, tunggu QR baru muncul.
+        QR berubah otomatis.
+        Jika QR kedaluwarsa, tunggu QR baru.
       </div>
-
-      <p class="refresh">
-        Halaman diperbarui otomatis.
-      </p>
     `;
   } else {
     content = `
@@ -98,15 +94,11 @@ app.get("/", async (req, res) => {
       <h1>SSJ Anti-Spam Bot</h1>
 
       <p>
-        Sedang meminta QR WhatsApp...
+        Sedang menyiapkan koneksi WhatsApp...
       </p>
 
       <p class="status">
         ${connectionStatus}
-      </p>
-
-      <p>
-        Tunggu beberapa detik.
       </p>
     `;
   }
@@ -159,9 +151,7 @@ body {
   min-height: 100vh;
 
   display: flex;
-
   justify-content: center;
-
   align-items: center;
 }
 
@@ -188,10 +178,7 @@ body {
 }
 
 h1 {
-  margin:
-    5px 0
-    10px 0;
-
+  margin: 5px 0 10px 0;
   font-size: 27px;
 }
 
@@ -205,11 +192,9 @@ h1 {
 
   padding: 18px;
 
-  margin:
-    25px auto;
+  margin: 25px auto;
 
   width: 100%;
-
   max-width: 360px;
 
   border-radius: 15px;
@@ -217,9 +202,7 @@ h1 {
 
 .qr-box img {
   display: block;
-
   width: 100%;
-
   height: auto;
 }
 
@@ -239,7 +222,6 @@ h1 {
 
 .warning {
   background: #352c12;
-
   color: #ffe79a;
 
   padding: 15px;
@@ -251,28 +233,17 @@ h1 {
   line-height: 1.5;
 }
 
-.refresh {
-  color: #8fa39a;
-
-  font-size: 13px;
-
-  margin-top: 20px;
-}
-
 .success-icon {
   width: 90px;
   height: 90px;
 
   border-radius: 50%;
 
-  margin:
-    10px auto
-    25px auto;
+  margin: 10px auto 25px auto;
 
   display: flex;
 
   align-items: center;
-
   justify-content: center;
 
   background: #25D366;
@@ -286,18 +257,15 @@ h1 {
 
 .success {
   background: #123c26;
-
   color: #70ef9c;
 
   padding: 18px;
 
   border-radius: 14px;
 
-  margin:
-    25px 0;
+  margin: 25px 0;
 
   font-weight: bold;
-
   font-size: 18px;
 }
 
@@ -309,32 +277,24 @@ h1 {
   width: 55px;
   height: 55px;
 
-  margin:
-    10px auto
-    30px auto;
+  margin: 10px auto 30px auto;
 
-  border:
-    6px solid #24342d;
-
-  border-top:
-    6px solid #25D366;
+  border: 6px solid #24342d;
+  border-top: 6px solid #25D366;
 
   border-radius: 50%;
 
-  animation:
-    spin 1s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
 
   0% {
-    transform:
-      rotate(0deg);
+    transform: rotate(0deg);
   }
 
   100% {
-    transform:
-      rotate(360deg);
+    transform: rotate(360deg);
   }
 
 }
@@ -361,6 +321,10 @@ h1 {
   `);
 });
 
+/* ==================================================
+   HEALTH CHECK
+================================================== */
+
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
@@ -370,20 +334,59 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `🌐 QR Web Server aktif pada port ${PORT}`
-  );
-});
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
 
-/* =========================================
-   AMBIL TEXT PESAN
-========================================= */
+    console.log(
+      `🌐 QR Web Server aktif pada port ${PORT}`
+    );
+  }
+);
+
+/* ==================================================
+   AMBIL ISI PESAN
+================================================== */
 
 function getText(msg) {
-  const m = msg?.message;
 
-  if (!m) return "";
+  let m = msg?.message;
+
+  if (!m) {
+    return "";
+  }
+
+  /*
+   * Buka beberapa wrapper pesan WhatsApp.
+   */
+
+  if (m.ephemeralMessage?.message) {
+    m = m.ephemeralMessage.message;
+  }
+
+  if (
+    m.viewOnceMessage?.message
+  ) {
+    m =
+      m.viewOnceMessage.message;
+  }
+
+  if (
+    m.viewOnceMessageV2?.message
+  ) {
+    m =
+      m.viewOnceMessageV2.message;
+  }
+
+  if (
+    m.documentWithCaptionMessage
+      ?.message
+  ) {
+    m =
+      m.documentWithCaptionMessage
+        .message;
+  }
 
   return (
     m.conversation ||
@@ -393,16 +396,20 @@ function getText(msg) {
     m.documentMessage?.caption ||
     m.buttonsResponseMessage
       ?.selectedDisplayText ||
-    m.listResponseMessage?.title ||
+    m.buttonsResponseMessage
+      ?.selectedButtonId ||
+    m.listResponseMessage
+      ?.title ||
+    m.listResponseMessage
+      ?.singleSelectReply
+      ?.selectedRowId ||
     ""
   );
 }
 
-/* =========================================
-   WHATSAPP
-========================================= */
-
-let reconnecting = false;
+/* ==================================================
+   START WHATSAPP
+================================================== */
 
 async function startBot() {
 
@@ -452,7 +459,7 @@ async function startBot() {
       browser: [
         "SSJ AntiSpam Bot",
         "Chrome",
-        "2.0.0"
+        "2.1.0"
       ],
 
       markOnlineOnConnect: false,
@@ -467,14 +474,18 @@ async function startBot() {
       keepAliveIntervalMs: 10000
     });
 
+  /*
+   * SIMPAN CREDENTIAL
+   */
+
   sock.ev.on(
     "creds.update",
     saveCreds
   );
 
-  /* =====================================
-     STATUS + QR
-  ===================================== */
+  /* ==================================================
+     STATUS KONEKSI + QR
+  ================================================== */
 
   sock.ev.on(
     "connection.update",
@@ -486,13 +497,16 @@ async function startBot() {
         qr
       } = update;
 
-      /* QR BARU */
+      /*
+       * QR BARU
+       */
 
       if (qr) {
 
         currentQR = qr;
 
-        whatsappConnected = false;
+        whatsappConnected =
+          false;
 
         connectionStatus =
           "QR siap untuk discan";
@@ -519,13 +533,16 @@ async function startBot() {
         } catch (error) {
 
           console.error(
-            "❌ Gagal membuat gambar QR:",
+            "❌ Gagal membuat QR:",
+            error?.message ||
             error
           );
         }
       }
 
-      /* CONNECTING */
+      /*
+       * CONNECTING
+       */
 
       if (
         connection ===
@@ -540,19 +557,22 @@ async function startBot() {
         );
       }
 
-      /* BERHASIL */
+      /*
+       * CONNECTED
+       */
 
       if (
         connection ===
         "open"
       ) {
 
-        reconnecting = false;
+        reconnecting =
+          false;
 
-        whatsappConnected = true;
+        whatsappConnected =
+          true;
 
         currentQR = null;
-
         qrImage = null;
 
         connectionStatus =
@@ -574,14 +594,17 @@ async function startBot() {
         console.log("");
       }
 
-      /* PUTUS */
+      /*
+       * CONNECTION CLOSE
+       */
 
       if (
         connection ===
         "close"
       ) {
 
-        whatsappConnected = false;
+        whatsappConnected =
+          false;
 
         const statusCode =
           lastDisconnect
@@ -595,7 +618,8 @@ async function startBot() {
 
         console.log(
           "Status:",
-          statusCode || "unknown"
+          statusCode ||
+          "unknown"
         );
 
         if (
@@ -604,11 +628,10 @@ async function startBot() {
         ) {
 
           currentQR = null;
-
           qrImage = null;
 
           connectionStatus =
-            "WhatsApp logout. Restart diperlukan.";
+            "WhatsApp logout.";
 
           console.log(
             "❌ Session WhatsApp logout."
@@ -636,9 +659,9 @@ async function startBot() {
     }
   );
 
-  /* =====================================
-     MODERASI PESAN
-  ===================================== */
+  /* ==================================================
+     PESAN MASUK + DEBUG
+  ================================================== */
 
   sock.ev.on(
     "messages.upsert",
@@ -646,6 +669,77 @@ async function startBot() {
       messages,
       type
     }) => {
+
+      /*
+       * DEBUG DITARUH SEBELUM FILTER.
+       * Jadi kita bisa memastikan event
+       * benar-benar diterima Baileys.
+       */
+
+      console.log("");
+      console.log(
+        "📩 EVENT PESAN MASUK"
+      );
+
+      console.log(
+        "Type:",
+        type
+      );
+
+      console.log(
+        "Jumlah:",
+        messages?.length || 0
+      );
+
+      for (
+        const debugMsg
+        of messages || []
+      ) {
+
+        console.log(
+          "JID:",
+          debugMsg
+            ?.key
+            ?.remoteJid
+        );
+
+        console.log(
+          "Participant:",
+          debugMsg
+            ?.key
+            ?.participant
+        );
+
+        console.log(
+          "FromMe:",
+          debugMsg
+            ?.key
+            ?.fromMe
+        );
+
+        console.log(
+          "Text:",
+          getText(debugMsg)
+        );
+
+        console.log(
+          "Message type:",
+          Object.keys(
+            debugMsg?.message ||
+            {}
+          )[0] ||
+          "unknown"
+        );
+      }
+
+      console.log(
+        "------------------------------"
+      );
+
+      /*
+       * Untuk sementara kita log semua event,
+       * tetapi moderasi hanya pesan notify.
+       */
 
       if (
         type !== "notify"
@@ -655,7 +749,7 @@ async function startBot() {
 
       for (
         const msg
-        of messages
+        of messages || []
       ) {
 
         try {
@@ -666,14 +760,23 @@ async function startBot() {
             continue;
           }
 
+          /*
+           * Jangan moderasi pesan
+           * yang dikirim bot sendiri.
+           */
+
           if (
-            msg.key.fromMe
+            msg.key?.fromMe
           ) {
             continue;
           }
 
           const messageId =
-            msg.key.id;
+            msg.key?.id;
+
+          /*
+           * ANTI DUPLIKAT
+           */
 
           if (
             messageId &&
@@ -703,10 +806,11 @@ async function startBot() {
           }
 
           const jid =
-            msg.key.remoteJid;
+            msg.key
+              ?.remoteJid;
 
           /*
-           * HANYA GRUP
+           * HANYA GRUP WHATSAPP
            */
 
           if (
@@ -715,11 +819,38 @@ async function startBot() {
               "@g.us"
             )
           ) {
+
+            console.log(
+              "ℹ️ Bukan pesan grup."
+            );
+
             continue;
           }
 
           const text =
             getText(msg);
+
+          console.log(
+            "🔎 Memeriksa pesan grup:",
+            text
+          );
+
+          /*
+           * PESAN TANPA TEXT
+           */
+
+          if (!text) {
+
+            console.log(
+              "ℹ️ Pesan tidak memiliki teks/caption."
+            );
+
+            continue;
+          }
+
+          /*
+           * MODERASI
+           */
 
           const result =
             await evaluateMessage({
@@ -730,11 +861,20 @@ async function startBot() {
               config
             });
 
+          console.log(
+            "🧠 Hasil moderasi:",
+            result
+          );
+
           if (!result) {
             continue;
           }
 
-          /* HAPUS PESAN */
+          /*
+           * ==============================
+           * HAPUS PESAN
+           * ==============================
+           */
 
           if (
             result.delete
@@ -751,7 +891,7 @@ async function startBot() {
               );
 
               console.log(
-                "🗑️ Pesan pelanggaran dihapus"
+                "🗑️ Pesan pelanggaran berhasil dihapus"
               );
 
             } catch (error) {
@@ -764,7 +904,11 @@ async function startBot() {
             }
           }
 
-          /* PERINGATAN */
+          /*
+           * ==============================
+           * PERINGATAN
+           * ==============================
+           */
 
           if (
             result.reply
@@ -784,6 +928,10 @@ async function startBot() {
                 }
               );
 
+              console.log(
+                "⚠️ Peringatan dikirim"
+              );
+
             } catch (error) {
 
               console.error(
@@ -794,12 +942,33 @@ async function startBot() {
             }
           }
 
-          /* KELUARKAN MEMBER */
+          /*
+           * ==============================
+           * KELUARKAN MEMBER
+           * ==============================
+           */
 
           if (
-            result.kick &&
-            msg.key.participant
+            result.kick
           ) {
+
+            const participant =
+              msg.key
+                ?.participant;
+
+            console.log(
+              "👤 Participant target:",
+              participant
+            );
+
+            if (!participant) {
+
+              console.log(
+                "❌ Participant tidak ditemukan."
+              );
+
+              continue;
+            }
 
             try {
 
@@ -807,14 +976,13 @@ async function startBot() {
                 .groupParticipantsUpdate(
                   jid,
                   [
-                    msg.key
-                      .participant
+                    participant
                   ],
                   "remove"
                 );
 
               console.log(
-                "🚫 Member pelanggar dikeluarkan"
+                "🚫 Member pelanggar berhasil dikeluarkan"
               );
 
             } catch (error) {
@@ -842,9 +1010,9 @@ async function startBot() {
   return sock;
 }
 
-/* =========================================
+/* ==================================================
    ERROR HANDLER
-========================================= */
+================================================== */
 
 process.on(
   "uncaughtException",
@@ -868,7 +1036,9 @@ process.on(
   }
 );
 
-/* MULAI */
+/* ==================================================
+   MULAI BOT
+================================================== */
 
 startBot().catch(
   (error) => {
