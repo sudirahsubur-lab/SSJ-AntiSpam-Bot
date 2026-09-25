@@ -1,6 +1,6 @@
 {
   "name": "ssj-antispam-bot",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "pino": "^9.9.0",
     "qrcode": "^1.5.4"
