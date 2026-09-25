@@ -11,10 +11,21 @@ import fs from "fs";
 
 import { evaluateMessage } from "./moderation.js";
 
+/* =========================================================
+   CONFIG
+========================================================= */
+
 const logger = P({ level: "silent" });
 
 const PORT = process.env.PORT || 8080;
 const AUTH_FOLDER = "./auth_info";
+
+const TELEGRAM_BOT_TOKEN =
+  process.env.TELEGRAM_BOT_TOKEN || "";
+
+/* =========================================================
+   STATUS WHATSAPP
+========================================================= */
 
 let qrImage = null;
 let whatsappConnected = false;
@@ -22,7 +33,30 @@ let connectionStatus = "Memulai bot...";
 let reconnectTimer = null;
 let currentSock = null;
 
+/* =========================================================
+   STATUS TELEGRAM
+========================================================= */
+
+let telegramOffset = 0;
+let telegramPollingStarted = false;
+
+let detectedTelegramChatId = null;
+let detectedWhatsAppGroupJid = null;
+
+/* =========================================================
+   ANTI DUPLIKAT
+========================================================= */
+
 const handled = new Set();
+
+/* =========================================================
+   HELPER
+========================================================= */
+
+const sleep = (ms) =>
+  new Promise((resolve) =>
+    setTimeout(resolve, ms)
+  );
 
 /* =========================================================
    WEB SERVER
@@ -31,6 +65,7 @@ const handled = new Set();
 const app = express();
 
 app.get("/", (req, res) => {
+
   res.setHeader(
     "Cache-Control",
     "no-store, no-cache, must-revalidate, proxy-revalidate"
@@ -39,6 +74,7 @@ app.get("/", (req, res) => {
   let content = "";
 
   if (whatsappConnected) {
+
     content = `
       <div class="success-icon">✓</div>
 
@@ -58,10 +94,20 @@ app.get("/", (req, res) => {
       </p>
 
       <div class="info">
-        Bot sedang memantau pesan grup.
+        🛡️ Anti-Spam Aktif
+      </div>
+
+      <div class="info">
+        ${
+          TELEGRAM_BOT_TOKEN
+            ? "🤖 Telegram Bridge Aktif"
+            : "⚠️ Telegram Token Belum Diatur"
+        }
       </div>
     `;
+
   } else if (qrImage) {
+
     content = `
       <h1>SSJ Anti-Spam Bot</h1>
 
@@ -70,30 +116,50 @@ app.get("/", (req, res) => {
       </p>
 
       <div class="qr-box">
-        <img src="${qrImage}" alt="QR WhatsApp">
+        <img
+          src="${qrImage}"
+          alt="QR WhatsApp"
+        >
       </div>
 
       <div class="steps">
+
         <b>Cara menghubungkan:</b>
+
         <br><br>
 
         1. Buka WhatsApp nomor bot<br>
+
         2. Tekan menu <b>⋮</b><br>
-        3. Pilih <b>Perangkat tertaut</b><br>
-        4. Tekan <b>Tautkan perangkat</b><br>
+
+        3. Pilih
+        <b>Perangkat tertaut</b><br>
+
+        4. Tekan
+        <b>Tautkan perangkat</b><br>
+
         5. Scan QR di atas
+
       </div>
 
       <div class="warning">
+
         QR berubah secara otomatis.
-        Jika QR kedaluwarsa, tunggu QR baru.
+
+        Jika QR kedaluwarsa,
+        tunggu QR baru.
+
       </div>
     `;
+
   } else {
+
     content = `
       <div class="loader"></div>
 
-      <h1>SSJ Anti-Spam Bot</h1>
+      <h1>
+        SSJ Anti-Spam Bot
+      </h1>
 
       <p>
         Sedang menyiapkan koneksi WhatsApp...
@@ -104,6 +170,7 @@ app.get("/", (req, res) => {
       </p>
     `;
   }
+
 
   res.send(`
 <!DOCTYPE html>
@@ -119,9 +186,14 @@ app.get("/", (req, res) => {
   content="width=device-width, initial-scale=1.0"
 />
 
-<meta http-equiv="refresh" content="5">
+<meta
+  http-equiv="refresh"
+  content="5"
+/>
 
-<title>SSJ Anti-Spam Bot</title>
+<title>
+SSJ Anti-Spam Bot
+</title>
 
 <style>
 
@@ -130,13 +202,16 @@ app.get("/", (req, res) => {
 }
 
 body {
+
   margin: 0;
   padding: 20px;
 
   min-height: 100vh;
 
   display: flex;
+
   align-items: center;
+
   justify-content: center;
 
   font-family:
@@ -155,16 +230,22 @@ body {
 }
 
 .container {
+
   width: 100%;
+
   max-width: 480px;
 
-  background: #101d17;
+  background:
+    #101d17;
 
-  padding: 30px 20px;
+  padding:
+    30px 20px;
 
-  border-radius: 24px;
+  border-radius:
+    24px;
 
-  text-align: center;
+  text-align:
+    center;
 
   box-shadow:
     0 20px 50px
@@ -172,122 +253,198 @@ body {
 }
 
 .logo {
-  font-size: 55px;
-  margin-bottom: 15px;
+
+  font-size:
+    55px;
+
+  margin-bottom:
+    15px;
 }
 
 h1 {
-  font-size: 28px;
-  margin-bottom: 15px;
+
+  font-size:
+    28px;
+
+  margin-bottom:
+    15px;
 }
 
 .subtitle {
-  color: #b8c8c0;
-  line-height: 1.6;
+
+  color:
+    #b8c8c0;
+
+  line-height:
+    1.6;
 }
 
 .qr-box {
-  width: 100%;
-  max-width: 360px;
 
-  margin: 25px auto;
+  width:
+    100%;
 
-  padding: 18px;
+  max-width:
+    360px;
 
-  background: white;
+  margin:
+    25px auto;
 
-  border-radius: 16px;
+  padding:
+    18px;
+
+  background:
+    white;
+
+  border-radius:
+    16px;
 }
 
 .qr-box img {
-  width: 100%;
-  height: auto;
 
-  display: block;
+  width:
+    100%;
+
+  height:
+    auto;
+
+  display:
+    block;
 }
 
 .steps {
-  text-align: left;
 
-  padding: 20px;
+  text-align:
+    left;
 
-  margin-top: 20px;
+  padding:
+    20px;
 
-  background: #182820;
+  margin-top:
+    20px;
 
-  border-radius: 15px;
+  background:
+    #182820;
 
-  line-height: 1.8;
+  border-radius:
+    15px;
+
+  line-height:
+    1.8;
 }
 
 .warning {
-  margin-top: 20px;
 
-  padding: 15px;
+  margin-top:
+    20px;
 
-  background: #392f13;
+  padding:
+    15px;
 
-  color: #ffe694;
+  background:
+    #392f13;
 
-  border-radius: 12px;
+  color:
+    #ffe694;
 
-  line-height: 1.5;
+  border-radius:
+    12px;
+
+  line-height:
+    1.5;
 }
 
 .success-icon {
-  width: 90px;
-  height: 90px;
 
-  margin: 10px auto 25px;
+  width:
+    90px;
 
-  border-radius: 50%;
+  height:
+    90px;
 
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  margin:
+    10px auto 25px;
 
-  background: #25D366;
+  border-radius:
+    50%;
 
-  font-size: 55px;
-  font-weight: bold;
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
+
+  background:
+    #25D366;
+
+  font-size:
+    55px;
+
+  font-weight:
+    bold;
 }
 
 .success {
-  margin: 25px 0;
 
-  padding: 18px;
+  margin:
+    25px 0;
 
-  background: #123d26;
+  padding:
+    18px;
 
-  color: #78efa0;
+  background:
+    #123d26;
 
-  border-radius: 14px;
+  color:
+    #78efa0;
 
-  font-size: 18px;
-  font-weight: bold;
+  border-radius:
+    14px;
+
+  font-size:
+    18px;
+
+  font-weight:
+    bold;
 }
 
 .info {
-  margin-top: 20px;
 
-  padding: 15px;
+  margin-top:
+    12px;
 
-  background: #182820;
+  padding:
+    15px;
 
-  border-radius: 12px;
+  background:
+    #182820;
 
-  color: #b9d7c7;
+  border-radius:
+    12px;
+
+  color:
+    #b9d7c7;
 }
 
 .status {
-  color: #25D366;
+
+  color:
+    #25D366;
 }
 
 .loader {
-  width: 60px;
-  height: 60px;
 
-  margin: 15px auto 30px;
+  width:
+    60px;
+
+  height:
+    60px;
+
+  margin:
+    15px auto 30px;
 
   border:
     7px solid #263a30;
@@ -295,7 +452,8 @@ h1 {
   border-top:
     7px solid #25D366;
 
-  border-radius: 50%;
+  border-radius:
+    50%;
 
   animation:
     spin 1s linear infinite;
@@ -304,11 +462,13 @@ h1 {
 @keyframes spin {
 
   from {
-    transform: rotate(0deg);
+    transform:
+      rotate(0deg);
   }
 
   to {
-    transform: rotate(360deg);
+    transform:
+      rotate(360deg);
   }
 }
 
@@ -334,30 +494,57 @@ h1 {
   `);
 });
 
+/* =========================================================
+   HEALTH CHECK
+========================================================= */
 
-app.get("/health", (req, res) => {
-  res.json({
-    ok: true,
-    whatsappConnected,
-    qrAvailable: Boolean(qrImage),
-    status: connectionStatus
-  });
-});
+app.get(
+  "/health",
+  (req, res) => {
 
+    res.json({
+
+      ok: true,
+
+      whatsappConnected,
+
+      qrAvailable:
+        Boolean(qrImage),
+
+      telegramConfigured:
+        Boolean(
+          TELEGRAM_BOT_TOKEN
+        ),
+
+      telegramChatId:
+        detectedTelegramChatId,
+
+      whatsappGroupJid:
+        detectedWhatsAppGroupJid,
+
+      status:
+        connectionStatus
+    });
+  }
+);
+
+/* =========================================================
+   START WEB SERVER
+========================================================= */
 
 app.listen(
   PORT,
   "0.0.0.0",
   () => {
+
     console.log(
       `🌐 Web Server aktif pada port ${PORT}`
     );
   }
 );
 
-
 /* =========================================================
-   AMBIL TEXT PESAN
+   AMBIL TEXT PESAN WHATSAPP
 ========================================================= */
 
 function unwrapMessage(message) {
@@ -366,33 +553,57 @@ function unwrapMessage(message) {
     return null;
   }
 
-  if (message.ephemeralMessage) {
+  if (
+    message.ephemeralMessage
+  ) {
+
     return unwrapMessage(
-      message.ephemeralMessage.message
+      message
+        .ephemeralMessage
+        .message
     );
   }
 
-  if (message.viewOnceMessage) {
+  if (
+    message.viewOnceMessage
+  ) {
+
     return unwrapMessage(
-      message.viewOnceMessage.message
+      message
+        .viewOnceMessage
+        .message
     );
   }
 
-  if (message.viewOnceMessageV2) {
+  if (
+    message.viewOnceMessageV2
+  ) {
+
     return unwrapMessage(
-      message.viewOnceMessageV2.message
+      message
+        .viewOnceMessageV2
+        .message
     );
   }
 
-  if (message.documentWithCaptionMessage) {
+  if (
+    message
+      .documentWithCaptionMessage
+  ) {
+
     return unwrapMessage(
-      message.documentWithCaptionMessage.message
+      message
+        .documentWithCaptionMessage
+        .message
     );
   }
 
   return message;
 }
 
+/* =========================================================
+   GET TEXT
+========================================================= */
 
 function getText(msg) {
 
@@ -406,38 +617,54 @@ function getText(msg) {
   }
 
   return (
+
     m.conversation ||
-    m.extendedTextMessage?.text ||
-    m.imageMessage?.caption ||
-    m.videoMessage?.caption ||
-    m.documentMessage?.caption ||
+
+    m.extendedTextMessage
+      ?.text ||
+
+    m.imageMessage
+      ?.caption ||
+
+    m.videoMessage
+      ?.caption ||
+
+    m.documentMessage
+      ?.caption ||
+
     m.buttonsResponseMessage
       ?.selectedDisplayText ||
+
     m.buttonsResponseMessage
       ?.selectedButtonId ||
+
     m.listResponseMessage
       ?.title ||
+
     m.listResponseMessage
       ?.singleSelectReply
       ?.selectedRowId ||
+
     ""
   );
 }
 
-
 /* =========================================================
-   AMBIL JID PENGIRIM
+   GET PARTICIPANT
 ========================================================= */
 
 function getParticipant(msg) {
 
   return (
-    msg?.key?.participant ||
+
+    msg?.key
+      ?.participant ||
+
     msg?.participant ||
+
     null
   );
 }
-
 
 /* =========================================================
    RESET SESSION
@@ -470,11 +697,11 @@ function resetAuthFolder() {
 
     console.error(
       "❌ Gagal menghapus session:",
-      error?.message || error
+      error?.message ||
+      error
     );
   }
 }
-
 
 /* =========================================================
    RECONNECT
@@ -496,10 +723,12 @@ function scheduleReconnect(
     setTimeout(
       () => {
 
-        reconnectTimer = null;
+        reconnectTimer =
+          null;
 
         startBot().catch(
           (error) => {
+
             console.error(
               "❌ Reconnect gagal:",
               error
@@ -516,6 +745,224 @@ function scheduleReconnect(
     );
 }
 
+/* =========================================================
+   TELEGRAM BOT
+========================================================= */
+
+async function startTelegramPolling() {
+
+  if (
+    telegramPollingStarted
+  ) {
+
+    return;
+  }
+
+  if (
+    !TELEGRAM_BOT_TOKEN
+  ) {
+
+    console.log(
+      "⚠️ TELEGRAM_BOT_TOKEN belum tersedia."
+    );
+
+    return;
+  }
+
+  telegramPollingStarted =
+    true;
+
+  console.log("");
+  console.log(
+    "======================================"
+  );
+
+  console.log(
+    "🤖 TELEGRAM BOT AKTIF"
+  );
+
+  console.log(
+    "Menunggu posting baru..."
+  );
+
+  console.log(
+    "======================================"
+  );
+
+  console.log("");
+
+
+  while (true) {
+
+    try {
+
+      const url =
+        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=30&offset=${telegramOffset}&allowed_updates=["channel_post","message"]`;
+
+
+      const response =
+        await fetch(url);
+
+
+      if (!response.ok) {
+
+        console.error(
+          "❌ Telegram HTTP:",
+          response.status
+        );
+
+        await sleep(5000);
+
+        continue;
+      }
+
+
+      const data =
+        await response.json();
+
+
+      if (!data.ok) {
+
+        console.error(
+          "❌ Telegram API:",
+          data.description ||
+          "Unknown error"
+        );
+
+        await sleep(5000);
+
+        continue;
+      }
+
+
+      for (
+        const update
+        of data.result
+      ) {
+
+        telegramOffset =
+          update.update_id + 1;
+
+
+        const post =
+          update.channel_post ||
+          update.message;
+
+
+        if (!post) {
+          continue;
+        }
+
+
+        const chatId =
+          String(
+            post.chat?.id ||
+            ""
+          );
+
+
+        if (!chatId) {
+          continue;
+        }
+
+
+        detectedTelegramChatId =
+          chatId;
+
+
+        const title =
+          post.chat?.title ||
+          post.chat?.username ||
+          post.chat?.first_name ||
+          "-";
+
+
+        const text =
+          post.text ||
+          post.caption ||
+          "";
+
+
+        let mediaType =
+          "TEXT";
+
+
+        if (
+          post.photo
+        ) {
+
+          mediaType =
+            "FOTO";
+        }
+
+        else if (
+          post.video
+        ) {
+
+          mediaType =
+            "VIDEO";
+        }
+
+        else if (
+          post.document
+        ) {
+
+          mediaType =
+            "DOKUMEN";
+        }
+
+
+        console.log("");
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          "📨 POSTING TELEGRAM TERDETEKSI"
+        );
+
+        console.log(
+          "Channel:",
+          title
+        );
+
+        console.log(
+          "TELEGRAM CHAT ID:",
+          chatId
+        );
+
+        console.log(
+          "Jenis:",
+          mediaType
+        );
+
+        console.log(
+          "Pesan:",
+          text ||
+          "[MEDIA TANPA CAPTION]"
+        );
+
+        console.log(
+          "======================================"
+        );
+
+        console.log("");
+      }
+
+    } catch (error) {
+
+      console.error(
+        "❌ Telegram polling error:",
+        error?.message ||
+        error
+      );
+
+      await sleep(
+        5000
+      );
+    }
+  }
+}
 
 /* =========================================================
    WHATSAPP BOT
@@ -524,18 +971,23 @@ function scheduleReconnect(
 async function startBot() {
 
   console.log("");
-  console.log(
-    "======================================"
-  );
-  console.log(
-    "          SSJ ANTI-SPAM BOT"
-  );
+
   console.log(
     "======================================"
   );
 
+  console.log(
+    "          SSJ ANTI-SPAM BOT"
+  );
+
+  console.log(
+    "======================================"
+  );
+
+
   connectionStatus =
     "Menyiapkan WhatsApp...";
+
 
   whatsappConnected =
     false;
@@ -569,7 +1021,8 @@ async function startBot() {
 
       logger,
 
-      auth: state,
+      auth:
+        state,
 
       printQRInTerminal:
         false,
@@ -597,7 +1050,8 @@ async function startBot() {
     });
 
 
-  currentSock = sock;
+  currentSock =
+    sock;
 
 
   sock.ev.on(
@@ -605,9 +1059,8 @@ async function startBot() {
     saveCreds
   );
 
-
   /* =====================================================
-     CONNECTION
+     CONNECTION UPDATE
   ===================================================== */
 
   sock.ev.on(
@@ -618,12 +1071,13 @@ async function startBot() {
         connection,
         lastDisconnect,
         qr
-      } = update;
+      } =
+        update;
 
 
-      /* -----------------------------
-         QR BARU
-      ----------------------------- */
+      /* =================================================
+         QR
+      ================================================= */
 
       if (qr) {
 
@@ -633,18 +1087,22 @@ async function startBot() {
         connectionStatus =
           "QR siap untuk dipindai";
 
+
         try {
 
           qrImage =
             await QRCode.toDataURL(
               qr,
               {
+
                 errorCorrectionLevel:
                   "M",
 
-                margin: 3,
+                margin:
+                  3,
 
-                width: 700
+                width:
+                  700
               }
             );
 
@@ -652,7 +1110,6 @@ async function startBot() {
           console.log(
             "📱 QR WhatsApp tersedia."
           );
-
 
         } catch (error) {
 
@@ -665,9 +1122,9 @@ async function startBot() {
       }
 
 
-      /* -----------------------------
+      /* =================================================
          CONNECTING
-      ----------------------------- */
+      ================================================= */
 
       if (
         connection ===
@@ -683,9 +1140,9 @@ async function startBot() {
       }
 
 
-      /* -----------------------------
-         TERHUBUNG
-      ----------------------------- */
+      /* =================================================
+         OPEN
+      ================================================= */
 
       if (
         connection ===
@@ -701,26 +1158,32 @@ async function startBot() {
         connectionStatus =
           "WhatsApp terhubung";
 
+
         console.log("");
+
         console.log(
           "======================================"
         );
+
         console.log(
           "✅ WHATSAPP TERHUBUNG"
         );
+
         console.log(
           "✅ SSJ ANTI-SPAM BOT AKTIF"
         );
+
         console.log(
           "======================================"
         );
+
         console.log("");
       }
 
 
-      /* -----------------------------
-         TERPUTUS
-      ----------------------------- */
+      /* =================================================
+         CLOSE
+      ================================================= */
 
       if (
         connection ===
@@ -742,6 +1205,7 @@ async function startBot() {
           "⚠️ WhatsApp terputus."
         );
 
+
         console.log(
           "Status:",
           statusCode ||
@@ -749,13 +1213,9 @@ async function startBot() {
         );
 
 
-        /*
-         * LOGGED OUT
-         *
-         * Hapus session lama,
-         * kemudian start ulang
-         * supaya QR baru muncul.
-         */
+        /* ===============================================
+           LOGGED OUT
+        =============================================== */
 
         if (
           statusCode ===
@@ -766,8 +1226,10 @@ async function startBot() {
             "🚪 WhatsApp logout."
           );
 
+
           connectionStatus =
             "Session logout. Membuat QR baru...";
+
 
           qrImage =
             null;
@@ -780,25 +1242,25 @@ async function startBot() {
             3000
           );
 
+
           return;
         }
 
 
-        /*
-         * STATUS 515 / restartRequired
-         *
-         * Biasanya terjadi setelah pairing.
-         * Jangan hapus session.
-         */
+        /* ===============================================
+           RESTART REQUIRED
+        =============================================== */
 
         if (
           statusCode ===
-          DisconnectReason.restartRequired ||
-          statusCode === 515
+            DisconnectReason.restartRequired ||
+          statusCode ===
+            515
         ) {
 
           connectionStatus =
             "Restart koneksi WhatsApp...";
+
 
           console.log(
             "🔄 WhatsApp meminta restart koneksi."
@@ -809,13 +1271,14 @@ async function startBot() {
             2000
           );
 
+
           return;
         }
 
 
-        /*
-         * KONEKSI PUTUS BIASA
-         */
+        /* ===============================================
+           RECONNECT BIASA
+        =============================================== */
 
         connectionStatus =
           "Menghubungkan ulang...";
@@ -828,9 +1291,8 @@ async function startBot() {
     }
   );
 
-
   /* =====================================================
-     MODERASI PESAN
+     PESAN WHATSAPP
   ===================================================== */
 
   sock.ev.on(
@@ -840,14 +1302,16 @@ async function startBot() {
       type
     }) => {
 
+
       /*
-       * Abaikan history lama.
        * Hanya pesan baru.
        */
 
       if (
-        type !== "notify"
+        type !==
+        "notify"
       ) {
+
         return;
       }
 
@@ -862,27 +1326,31 @@ async function startBot() {
           if (
             !msg?.message
           ) {
+
             continue;
           }
 
 
           /*
-           * Abaikan pesan bot sendiri
+           * Abaikan pesan
+           * dari bot sendiri.
            */
 
           if (
             msg.key?.fromMe
           ) {
+
             continue;
           }
 
 
           const jid =
-            msg.key?.remoteJid;
+            msg.key
+              ?.remoteJid;
 
 
           /*
-           * Hanya grup
+           * Hanya grup WhatsApp.
            */
 
           if (
@@ -891,12 +1359,29 @@ async function startBot() {
               "@g.us"
             )
           ) {
+
             continue;
           }
 
 
+          /* =================================================
+             DETEKSI GROUP JID
+          ================================================= */
+
+          detectedWhatsAppGroupJid =
+            jid;
+
+
+          console.log("");
+          console.log(
+            "🎯 WHATSAPP GROUP JID:",
+            detectedWhatsAppGroupJid
+          );
+
+
           /*
-           * Anti proses ganda
+           * Anti proses pesan
+           * dua kali.
            */
 
           const messageId =
@@ -909,11 +1394,14 @@ async function startBot() {
               messageId
             )
           ) {
+
             continue;
           }
 
 
-          if (messageId) {
+          if (
+            messageId
+          ) {
 
             handled.add(
               messageId
@@ -922,9 +1410,11 @@ async function startBot() {
 
             setTimeout(
               () => {
+
                 handled.delete(
                   messageId
                 );
+
               },
               120000
             );
@@ -932,13 +1422,16 @@ async function startBot() {
 
 
           const text =
-            getText(msg);
+            getText(
+              msg
+            );
 
 
           if (
             typeof text !==
             "string"
           ) {
+
             continue;
           }
 
@@ -947,7 +1440,10 @@ async function startBot() {
             text.trim();
 
 
-          if (!cleanText) {
+          if (
+            !cleanText
+          ) {
+
             continue;
           }
 
@@ -959,26 +1455,31 @@ async function startBot() {
 
 
           console.log("");
+
           console.log(
             "📩 PESAN GRUP"
           );
+
+
           console.log(
             "Pengirim:",
             participant ||
             "unknown"
           );
+
+
           console.log(
             "Pesan:",
             cleanText
           );
 
 
-          /*
-           * PENTING:
-           *
-           * moderation.js Anda menerima
-           * STRING, bukan object.
-           */
+          /* =================================================
+             MODERASI
+
+             PENTING:
+             evaluateMessage menerima STRING.
+          ================================================= */
 
           const result =
             evaluateMessage(
@@ -992,9 +1493,14 @@ async function startBot() {
           );
 
 
+          /* =================================================
+             BUKAN PELANGGARAN
+          ================================================= */
+
           if (
             !result?.violation
           ) {
+
 
             if (
               result
@@ -1006,9 +1512,14 @@ async function startBot() {
               );
             }
 
+
             continue;
           }
 
+
+          /* =================================================
+             PELANGGARAN
+          ================================================= */
 
           console.log(
             "🚨 PELANGGARAN:",
@@ -1038,6 +1549,7 @@ async function startBot() {
 
           } catch (error) {
 
+
             console.error(
               "❌ Gagal menghapus pesan:",
               error?.message ||
@@ -1047,18 +1559,25 @@ async function startBot() {
 
 
           /* =================================================
-             KELUARKAN MEMBER
+             PARTICIPANT TIDAK DITEMUKAN
           ================================================= */
 
-          if (!participant) {
+          if (
+            !participant
+          ) {
 
             console.log(
               "⚠️ JID member tidak ditemukan."
             );
 
+
             continue;
           }
 
+
+          /* =================================================
+             KELUARKAN MEMBER
+          ================================================= */
 
           try {
 
@@ -1080,6 +1599,7 @@ async function startBot() {
 
           } catch (error) {
 
+
             console.error(
               "❌ Gagal mengeluarkan member:",
               error?.message ||
@@ -1087,7 +1607,9 @@ async function startBot() {
             );
           }
 
+
         } catch (error) {
+
 
           console.error(
             "❌ Error memproses pesan:",
@@ -1102,7 +1624,6 @@ async function startBot() {
 
   return sock;
 }
-
 
 /* =========================================================
    ERROR HANDLER
@@ -1131,21 +1652,37 @@ process.on(
   }
 );
 
-
 /* =========================================================
-   MULAI BOT
+   MULAI TELEGRAM
 ========================================================= */
 
-startBot().catch(
-  (error) => {
+startTelegramPolling()
+  .catch(
+    (error) => {
 
-    console.error(
-      "❌ Bot gagal dijalankan:",
-      error
-    );
+      console.error(
+        "❌ Telegram Bot gagal:",
+        error
+      );
+    }
+  );
 
-    scheduleReconnect(
-      10000
-    );
-  }
-);
+/* =========================================================
+   MULAI WHATSAPP
+========================================================= */
+
+startBot()
+  .catch(
+    (error) => {
+
+      console.error(
+        "❌ Bot WhatsApp gagal dijalankan:",
+        error
+      );
+
+
+      scheduleReconnect(
+        10000
+      );
+    }
+  );
