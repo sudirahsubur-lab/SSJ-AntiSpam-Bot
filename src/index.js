@@ -35,6 +35,21 @@ const TELEGRAM_SOURCE_CHAT_ID =
 const WHATSAPP_TARGET_GROUP =
   "120363412428233121@g.us";
 
+/*
+ * SALURAN WHATSAPP TUJUAN
+ *
+ * Link:
+ * https://whatsapp.com/channel/0029Vb9G1dx1CYoWEAPbRN2G
+ */
+const WHATSAPP_CHANNEL_INVITE =
+  "0029Vb9G1dx1CYoWEAPbRN2G";
+
+/*
+ * Akan diisi otomatis setelah bot
+ * berhasil membaca metadata Channel.
+ */
+let WHATSAPP_TARGET_CHANNEL = null;
+
 /* =========================================================
    STATUS
 ========================================================= */
@@ -53,8 +68,9 @@ const handled = new Set();
 /*
  * Album Telegram.
  *
- * Telegram mengirim setiap foto album sebagai update terpisah
- * dengan media_group_id yang sama.
+ * Telegram mengirim setiap foto album
+ * sebagai update terpisah dengan
+ * media_group_id yang sama.
  */
 const telegramAlbums = new Map();
 
@@ -102,6 +118,14 @@ app.get("/", (req, res) => {
           TELEGRAM_BOT_TOKEN
             ? "🤖 Telegram → WhatsApp Aktif"
             : "⚠️ Telegram Token Belum Diatur"
+        }
+      </div>
+
+      <div class="info">
+        ${
+          WHATSAPP_TARGET_CHANNEL
+            ? "📢 Saluran WhatsApp Terhubung"
+            : "⚠️ Saluran WhatsApp Belum Terdeteksi"
         }
       </div>
 
@@ -388,8 +412,14 @@ app.get("/health", (req, res) => {
     telegramSource:
       TELEGRAM_SOURCE_CHAT_ID,
 
-    whatsappTarget:
+    whatsappGroup:
       WHATSAPP_TARGET_GROUP,
+
+    whatsappChannel:
+      WHATSAPP_TARGET_CHANNEL,
+
+    whatsappChannelDetected:
+      Boolean(WHATSAPP_TARGET_CHANNEL),
 
     status:
       connectionStatus
@@ -580,6 +610,83 @@ function scheduleReconnect(
 }
 
 /* =========================================================
+   WHATSAPP CHANNEL
+========================================================= */
+
+async function resolveWhatsAppChannel() {
+
+  if (!currentSock) {
+
+    console.log(
+      "⚠️ Socket WhatsApp belum tersedia."
+    );
+
+    return null;
+  }
+
+  try {
+
+    console.log("");
+    console.log(
+      "🔎 Mencari Saluran WhatsApp..."
+    );
+
+    const metadata =
+      await currentSock.newsletterMetadata(
+        "invite",
+        WHATSAPP_CHANNEL_INVITE
+      );
+
+    if (!metadata?.id) {
+
+      throw new Error(
+        "JID Saluran WhatsApp tidak ditemukan."
+      );
+    }
+
+    WHATSAPP_TARGET_CHANNEL =
+      metadata.id;
+
+    console.log("");
+    console.log(
+      "======================================"
+    );
+
+    console.log(
+      "📢 SALURAN WHATSAPP DITEMUKAN"
+    );
+
+    console.log(
+      "Nama:",
+      metadata.name || "-"
+    );
+
+    console.log(
+      "JID:",
+      WHATSAPP_TARGET_CHANNEL
+    );
+
+    console.log(
+      "======================================"
+    );
+
+    return WHATSAPP_TARGET_CHANNEL;
+
+  } catch (error) {
+
+    WHATSAPP_TARGET_CHANNEL =
+      null;
+
+    console.error(
+      "❌ Gagal membaca Saluran WhatsApp:",
+      error?.message || error
+    );
+
+    return null;
+  }
+}
+
+/* =========================================================
    TELEGRAM API
 ========================================================= */
 
@@ -685,17 +792,71 @@ async function sendTextToWhatsApp(
     return;
   }
 
-  await currentSock.sendMessage(
-    WHATSAPP_TARGET_GROUP,
-    {
-      text:
-        text.trim()
-    }
-  );
+  const cleanText =
+    text.trim();
 
-  console.log(
-    "✅ Teks Telegram dikirim ke WhatsApp."
-  );
+  /*
+   * KIRIM KE GRUP
+   */
+
+  try {
+
+    await currentSock.sendMessage(
+      WHATSAPP_TARGET_GROUP,
+      {
+        text:
+          cleanText
+      }
+    );
+
+    console.log(
+      "✅ Teks dikirim ke Grup WhatsApp."
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Gagal kirim teks ke grup:",
+      error?.message || error
+    );
+  }
+
+  /*
+   * KIRIM KE SALURAN
+   */
+
+  if (
+    WHATSAPP_TARGET_CHANNEL
+  ) {
+
+    try {
+
+      await currentSock.sendMessage(
+        WHATSAPP_TARGET_CHANNEL,
+        {
+          text:
+            cleanText
+        }
+      );
+
+      console.log(
+        "✅ Teks dikirim ke Saluran WhatsApp."
+      );
+
+    } catch (error) {
+
+      console.error(
+        "❌ Gagal kirim teks ke Saluran:",
+        error?.message || error
+      );
+    }
+
+  } else {
+
+    console.log(
+      "⚠️ Saluran belum terdeteksi. Teks hanya dikirim ke grup."
+    );
+  }
 }
 
 /* =========================================================
@@ -726,8 +887,11 @@ async function sendPhotoToWhatsApp(
   }
 
   /*
-   * Telegram memberi beberapa ukuran foto.
-   * Elemen terakhir biasanya resolusi terbesar.
+   * Telegram menyediakan beberapa
+   * ukuran foto.
+   *
+   * Elemen terakhir biasanya
+   * resolusi terbesar.
    */
 
   const photo =
@@ -740,20 +904,74 @@ async function sendPhotoToWhatsApp(
       photo.file_id
     );
 
-  await currentSock.sendMessage(
-    WHATSAPP_TARGET_GROUP,
-    {
-      image:
-        buffer,
+  /*
+   * KIRIM KE GRUP
+   */
 
-      caption:
-        caption || ""
+  try {
+
+    await currentSock.sendMessage(
+      WHATSAPP_TARGET_GROUP,
+      {
+        image:
+          buffer,
+
+        caption:
+          caption || ""
+      }
+    );
+
+    console.log(
+      "✅ Foto dikirim ke Grup WhatsApp."
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Gagal kirim foto ke grup:",
+      error?.message || error
+    );
+  }
+
+  /*
+   * KIRIM KE SALURAN
+   */
+
+  if (
+    WHATSAPP_TARGET_CHANNEL
+  ) {
+
+    try {
+
+      await currentSock.sendMessage(
+        WHATSAPP_TARGET_CHANNEL,
+        {
+          image:
+            buffer,
+
+          caption:
+            caption || ""
+        }
+      );
+
+      console.log(
+        "✅ Foto dikirim ke Saluran WhatsApp."
+      );
+
+    } catch (error) {
+
+      console.error(
+        "❌ Gagal kirim foto ke Saluran:",
+        error?.message || error
+      );
     }
-  );
 
-  console.log(
-    "✅ Foto Telegram dikirim ke WhatsApp."
-  );
+  } else {
+
+    console.log(
+      "⚠️ Saluran belum terdeteksi. Foto hanya dikirim ke grup."
+    );
+  }
 }
 
 /* =========================================================
@@ -787,24 +1005,82 @@ async function sendVideoToWhatsApp(
       video.file_id
     );
 
-  await currentSock.sendMessage(
-    WHATSAPP_TARGET_GROUP,
-    {
-      video:
-        buffer,
+  /*
+   * KIRIM KE GRUP
+   */
 
-      caption:
-        caption || "",
+  try {
 
-      mimetype:
-        video.mime_type ||
-        "video/mp4"
+    await currentSock.sendMessage(
+      WHATSAPP_TARGET_GROUP,
+      {
+        video:
+          buffer,
+
+        caption:
+          caption || "",
+
+        mimetype:
+          video.mime_type ||
+          "video/mp4"
+      }
+    );
+
+    console.log(
+      "✅ Video dikirim ke Grup WhatsApp."
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Gagal kirim video ke grup:",
+      error?.message || error
+    );
+  }
+
+  /*
+   * KIRIM KE SALURAN
+   */
+
+  if (
+    WHATSAPP_TARGET_CHANNEL
+  ) {
+
+    try {
+
+      await currentSock.sendMessage(
+        WHATSAPP_TARGET_CHANNEL,
+        {
+          video:
+            buffer,
+
+          caption:
+            caption || "",
+
+          mimetype:
+            video.mime_type ||
+            "video/mp4"
+        }
+      );
+
+      console.log(
+        "✅ Video dikirim ke Saluran WhatsApp."
+      );
+
+    } catch (error) {
+
+      console.error(
+        "❌ Gagal kirim video ke Saluran:",
+        error?.message || error
+      );
     }
-  );
 
-  console.log(
-    "✅ Video Telegram dikirim ke WhatsApp."
-  );
+  } else {
+
+    console.log(
+      "⚠️ Saluran belum terdeteksi. Video hanya dikirim ke grup."
+    );
+  }
 }
 
 /* =========================================================
@@ -979,7 +1255,8 @@ async function processTelegramPost(
     );
 
   /*
-   * HANYA channel yang sudah kita tentukan.
+   * HANYA CHANNEL TELEGRAM
+   * YANG SUDAH DITENTUKAN.
    */
 
   if (
@@ -1026,7 +1303,7 @@ async function processTelegramPost(
   );
 
   /*
-   * Album
+   * ALBUM
    */
 
   if (
@@ -1041,7 +1318,7 @@ async function processTelegramPost(
   }
 
   /*
-   * Foto tunggal
+   * FOTO TUNGGAL
    */
 
   if (
@@ -1057,7 +1334,7 @@ async function processTelegramPost(
   }
 
   /*
-   * Video
+   * VIDEO
    */
 
   if (
@@ -1073,7 +1350,7 @@ async function processTelegramPost(
   }
 
   /*
-   * Text
+   * TEXT
    */
 
   if (
@@ -1134,8 +1411,13 @@ async function startTelegramPolling() {
   );
 
   console.log(
-    "WhatsApp:",
+    "Grup WhatsApp:",
     WHATSAPP_TARGET_GROUP
+  );
+
+  console.log(
+    "Channel invite:",
+    WHATSAPP_CHANNEL_INVITE
   );
 
   console.log(
@@ -1230,6 +1512,13 @@ async function startBot() {
 
   whatsappConnected =
     false;
+
+  /*
+   * Jangan hapus Channel JID di sini.
+   * Jika reconnect biasa terjadi,
+   * JID yang sudah ditemukan masih
+   * dapat digunakan.
+   */
 
   const {
     state,
@@ -1372,6 +1661,12 @@ async function startBot() {
         connectionStatus =
           "WhatsApp terhubung";
 
+        /*
+         * DETEKSI SALURAN WHATSAPP
+         */
+
+        await resolveWhatsAppChannel();
+
         console.log("");
         console.log(
           "======================================"
@@ -1386,8 +1681,23 @@ async function startBot() {
         );
 
         console.log(
-          "✅ TELEGRAM → WHATSAPP SIAP"
+          "✅ TELEGRAM → GRUP WHATSAPP SIAP"
         );
+
+        if (
+          WHATSAPP_TARGET_CHANNEL
+        ) {
+
+          console.log(
+            "✅ TELEGRAM → SALURAN WHATSAPP SIAP"
+          );
+
+        } else {
+
+          console.log(
+            "⚠️ SALURAN WHATSAPP BELUM TERDETEKSI"
+          );
+        }
 
         console.log(
           "======================================"
@@ -1430,6 +1740,9 @@ async function startBot() {
             "Session logout. Membuat QR baru...";
 
           qrImage =
+            null;
+
+          WHATSAPP_TARGET_CHANNEL =
             null;
 
           resetAuthFolder();
@@ -1506,8 +1819,8 @@ async function startBot() {
           }
 
           /*
-           * Pesan yang dikirim bot sendiri
-           * tidak dimoderasi.
+           * PESAN BOT SENDIRI
+           * TIDAK DIMODERASI.
            */
 
           if (
@@ -1520,6 +1833,13 @@ async function startBot() {
           const jid =
             msg.key
               ?.remoteJid;
+
+          /*
+           * MODERASI HANYA GRUP.
+           *
+           * Channel @newsletter tidak
+           * akan ikut dimoderasi.
+           */
 
           if (
             !jid ||
@@ -1641,7 +1961,7 @@ async function startBot() {
           );
 
           /*
-           * Hapus pesan
+           * HAPUS PESAN
            */
 
           try {
@@ -1678,7 +1998,7 @@ async function startBot() {
           }
 
           /*
-           * Keluarkan member
+           * KELUARKAN MEMBER
            */
 
           try {
