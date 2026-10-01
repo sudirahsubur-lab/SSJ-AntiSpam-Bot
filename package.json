@@ -1,13 +1,14 @@
 {
   "name": "ssj-antispam-bot",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "postinstall": "node patches/baileys-newsletter-fix.js",
     "start": "node src/index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "latest",
+    "@whiskeysockets/baileys": "7.0.0-rc.11",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "pino": "^9.9.0",
